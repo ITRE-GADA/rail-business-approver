@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Transfer approved rail business suggestions into the authoritative Rail Businesses layer.">
+  <title>Process Approved Rail Businesses</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/calcite-components/3.3.3/calcite.css">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="https://js.arcgis.com/calcite-components/3.3.3/calcite.esm.js"></script>
+  <script type="module" src="https://js.arcgis.com/5.1/"></script>
+  <script src="config.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand-mark" aria-hidden="true"></div>
+    <div>
+      <p class="eyebrow">NC Rail Businesses</p>
+      <h1>Process approved suggestions</h1>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel" aria-labelledby="status-heading">
+      <div class="panel-heading">
+        <div>
+          <h2 id="status-heading">Approval transfer</h2>
+          <p>Review the counts before adding approved suggestions to Rail Businesses.</p>
+        </div>
+        <span id="auth-badge" class="badge neutral">Not signed in</span>
+      </div>
+
+      <div id="setup-warning" class="notice warning" hidden></div>
+      <div id="error-message" class="notice error" role="alert" hidden></div>
+      <div id="success-message" class="notice success" role="status" hidden></div>
+
+      <div id="signed-out-view" class="centered-action">
+        <p>Sign in with your NCSU ArcGIS Online account to continue.</p>
+        <button id="sign-in-button" class="button primary" type="button">Sign in to ArcGIS Online</button>
+      </div>
+
+      <div id="signed-in-view" hidden>
+        <div class="identity-row">
+          <div>
+            <span class="label">Signed in as</span>
+            <strong id="user-name"></strong>
+          </div>
+          <button id="sign-out-button" class="button quiet" type="button">Sign out</button>
+        </div>
+
+        <div id="unauthorized-view" class="notice error" hidden>
+          Your account is not a member of the authorized rail-business group.
+        </div>
+
+        <div id="authorized-view" hidden>
+          <div class="stats" aria-live="polite">
+            <article><span>Approved</span><strong id="approved-count">—</strong></article>
+            <article><span>Already transferred</span><strong id="duplicate-count">—</strong></article>
+            <article><span>Ready to append</span><strong id="ready-count">—</strong></article>
+            <article><span>Missing GlobalID</span><strong id="missing-count">—</strong></article>
+          </div>
+
+          <div class="actions">
+            <button id="refresh-button" class="button secondary" type="button">Refresh preview</button>
+            <button id="process-button" class="button primary" type="button" disabled>Append approved businesses</button>
+          </div>
+          <p class="safety-note">Only successfully appended records will be changed from Approved (1) to Processed (4).</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="results-panel" class="panel" aria-labelledby="results-heading" hidden>
+      <h2 id="results-heading">Run results</h2>
+      <dl class="results-grid">
+        <div><dt>Approved found</dt><dd id="result-approved">0</dd></div>
+        <div><dt>Appended</dt><dd id="result-added">0</dd></div>
+        <div><dt>Marked processed</dt><dd id="result-updated">0</dd></div>
+        <div><dt>Duplicates skipped</dt><dd id="result-duplicates">0</dd></div>
+        <div><dt>Missing GlobalID</dt><dd id="result-missing">0</dd></div>
+        <div><dt>Append failures</dt><dd id="result-add-failures">0</dd></div>
+        <div><dt>Status-update failures</dt><dd id="result-update-failures">0</dd></div>
+      </dl>
+      <details id="failure-details" hidden>
+        <summary>View failure details</summary>
+        <pre id="failure-output"></pre>
+      </details>
+    </section>
+  </main>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <h2>Append approved businesses?</h2>
+      <p id="confirm-copy"></p>
+      <div class="dialog-actions">
+        <button class="button quiet" value="cancel">Cancel</button>
+        <button id="confirm-process-button" class="button primary" value="confirm">Append records</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
