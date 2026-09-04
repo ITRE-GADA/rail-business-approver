@@ -15,7 +15,21 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--canvas); color: var(--ink); min-height: 100vh; }
 header { background: #0b1014; color: white; border-bottom: 4px solid #00a9e0; padding: 1.15rem clamp(1rem, 4vw, 3rem); display: flex; align-items: center; gap: 1rem; }
-.brand-mark { width: 1.15rem; height: 1.15rem; border: .3rem solid var(--red); transform: rotate(45deg); flex: 0 0 auto; }
+.brand-logo-frame {
+  width: 58px;
+  height: 58px;
+  overflow: hidden;
+  flex: 0 0 58px;
+  display: flex;
+  align-items: center;
+}
+
+.brand-logo {
+  display: block;
+  width: auto;
+  height: 58px;
+  max-width: none;
+}
 .eyebrow { margin: 0 0 .15rem; color: #b9ddeb; font-size: .78rem; letter-spacing: .11em; text-transform: uppercase; }
 h1 { margin: 0; font-size: clamp(1.35rem, 3vw, 2rem); line-height: 1.15; }
 main { width: min(58rem, calc(100% - 2rem)); margin: 2rem auto; display: grid; gap: 1rem; }
