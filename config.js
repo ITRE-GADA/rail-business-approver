@@ -1,8 +1,8 @@
 // Public browser configuration. Do not put passwords or client secrets here.
 window.APP_CONFIG = Object.freeze({
   portalUrl: "https://ncsu.maps.arcgis.com",
-  oauthAppId: "REPLACE_WITH_ARCGIS_OAUTH_APP_ID",
-  authorizedGroupId: "REPLACE_WITH_NC_RAIL_BUSINESSES_GROUP_ID",
+  oauthAppId: "hLjnoL22D2zRuLRp",
+  authorizedGroupId: "2c8d04de43184334b85837b09a3304b4",
 
   sourceItemId: "186e115c218e4a41a1851b5fc119ba45",
   sourceLayerIndex: 0,
