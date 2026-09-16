@@ -62,15 +62,15 @@
           <div class="stats" aria-live="polite">
             <article><span>Approved</span><strong id="approved-count">—</strong></article>
             <article><span>Already transferred</span><strong id="duplicate-count">—</strong></article>
-            <article><span>Ready to append</span><strong id="ready-count">—</strong></article>
+            <article><span>Ready to process</span><strong id="ready-count">—</strong></article>
             <article><span>Missing GlobalID</span><strong id="missing-count">—</strong></article>
           </div>
 
           <div class="actions">
             <button id="refresh-button" class="button secondary" type="button">Refresh preview</button>
-            <button id="process-button" class="button primary" type="button" disabled>Append approved businesses</button>
+            <button id="process-button" class="button primary" type="button" disabled>Process approved businesses</button>
           </div>
-          <p class="safety-note">Only successfully appended records will be changed from Approved (1) to Processed (4).</p>
+          <p class="safety-note">Only successfully processed records will be changed from Approved (1) to Processed (4).</p>
         </div>
       </div>
     </section>
@@ -79,11 +79,11 @@
       <h2 id="results-heading">Run results</h2>
       <dl class="results-grid">
         <div><dt>Approved found</dt><dd id="result-approved">0</dd></div>
-        <div><dt>Appended</dt><dd id="result-added">0</dd></div>
+        <div><dt>Processed</dt><dd id="result-added">0</dd></div>
         <div><dt>Marked processed</dt><dd id="result-updated">0</dd></div>
         <div><dt>Duplicates skipped</dt><dd id="result-duplicates">0</dd></div>
         <div><dt>Missing GlobalID</dt><dd id="result-missing">0</dd></div>
-        <div><dt>Append failures</dt><dd id="result-add-failures">0</dd></div>
+        <div><dt>Process failures</dt><dd id="result-add-failures">0</dd></div>
         <div><dt>Status-update failures</dt><dd id="result-update-failures">0</dd></div>
       </dl>
       <details id="failure-details" hidden>
@@ -95,11 +95,11 @@
 
   <dialog id="confirm-dialog">
     <form method="dialog">
-      <h2>Append approved businesses?</h2>
+      <h2>Process approved businesses?</h2>
       <p id="confirm-copy"></p>
       <div class="dialog-actions">
         <button class="button quiet" value="cancel">Cancel</button>
-        <button id="confirm-process-button" class="button primary" value="confirm">Append records</button>
+        <button id="confirm-process-button" class="button primary" value="confirm">Process records</button>
       </div>
     </form>
   </dialog>
