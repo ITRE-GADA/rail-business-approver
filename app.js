@@ -52,7 +52,7 @@ function setBusy(value, label = "Working…") {
   busy = value;
   elements["refresh-button"].disabled = value;
   elements["process-button"].disabled = value || !preview || preview.records.length === 0;
-  elements["process-button"].textContent = value ? label : "Append approved businesses";
+  elements["process-button"].textContent = value ? label : "Process approved suggestions";
 }
 
 function validateConfiguration() {
@@ -176,6 +176,11 @@ async function initializeLayers(PortalItem, FeatureLayer) {
   if (!findField(sourceLayer, config.reviewField)) {
     throw new Error(`The source does not contain ${config.reviewField}.`);
   }
+  if (!findField(sourceLayer, config.suggestionTypeField)) {
+    throw new Error(
+      `The source does not contain ${config.suggestionTypeField}.`
+    );
+  }
   if (!sourceLayer.globalIdField) {
     throw new Error("The source layer does not have a GlobalID field.");
   }
@@ -197,72 +202,237 @@ async function initializeLayers(PortalItem, FeatureLayer) {
 
 async function buildPreview() {
   if (busy) return;
+
   showMessage(null, null);
   setBusy(true, "Refreshing…");
-  try {
-    const reviewField = findField(sourceLayer, config.reviewField).name;
-    const trackingField = findField(targetLayer, config.targetSourceIdField).name;
 
-    const [existingFeatures, approvedFeatures] = await Promise.all([
-      getAllFeaturesByWhere(targetLayer, `${trackingField} IS NOT NULL`, [trackingField], false),
-      getAllFeaturesByWhere(sourceLayer, `${reviewField} = ${Number(config.approvedValue)}`, ["*"], true)
+  try {
+    const reviewField =
+      findField(sourceLayer, config.reviewField).name;
+
+    const suggestionTypeField =
+      findField(sourceLayer, config.suggestionTypeField).name;
+
+    const trackingField =
+      findField(targetLayer, config.targetSourceIdField).name;
+
+    const railBusinessIdField =
+      findField(targetLayer, config.railBusinessIdField).name;
+
+    const targetOidField = targetLayer.objectIdField;
+
+    const [
+      existingTrackingFeatures,
+      targetBusinessFeatures,
+      approvedFeatures
+    ] = await Promise.all([
+      getAllFeaturesByWhere(
+        targetLayer,
+        `${trackingField} IS NOT NULL`,
+        [trackingField],
+        false
+      ),
+
+      getAllFeaturesByWhere(
+        targetLayer,
+        `${railBusinessIdField} IS NOT NULL`,
+        [targetOidField, railBusinessIdField],
+        false
+      ),
+
+      getAllFeaturesByWhere(
+        sourceLayer,
+        `${reviewField} = ${Number(config.approvedValue)}`,
+        ["*"],
+        true
+      )
     ]);
 
-    const existingIds = new Set(
-      existingFeatures
-        .map((feature) => normalizeGlobalId(feature.attributes[trackingField]))
+    // Used to prevent the same NEW suggestion from being appended twice.
+    const existingSourceIds = new Set(
+      existingTrackingFeatures
+        .map((feature) =>
+          normalizeGlobalId(feature.attributes[trackingField])
+        )
         .filter(Boolean)
     );
 
+    // RailBusinessID -> target OBJECTID
+    const targetByRailBusinessId = new Map();
+
+    for (const feature of targetBusinessFeatures) {
+      const id = Number(
+        feature.attributes[railBusinessIdField]
+      );
+
+      if (Number.isFinite(id)) {
+        targetByRailBusinessId.set(
+          id,
+          feature.attributes[targetOidField]
+        );
+      }
+    }
+
     const writableTargetFields = new Map();
+
     for (const field of targetLayer.fields) {
-      if (["oid", "global-id"].includes(field.type) || field.editable === false) continue;
-      writableTargetFields.set(field.name.toLowerCase(), field.name);
+      if (
+        ["oid", "global-id"].includes(field.type) ||
+        field.editable === false
+      ) {
+        continue;
+      }
+
+      writableTargetFields.set(
+        field.name.toLowerCase(),
+        field.name
+      );
     }
 
     const records = [];
+
     let duplicates = 0;
     let missingGlobalId = 0;
 
     for (const sourceFeature of approvedFeatures) {
       const attributes = sourceFeature.attributes;
-      const sourceGlobalId = attributes[sourceLayer.globalIdField];
-      const normalizedId = normalizeGlobalId(sourceGlobalId);
+
+      const sourceGlobalId =
+        attributes[sourceLayer.globalIdField];
+
+      const normalizedId =
+        normalizeGlobalId(sourceGlobalId);
+
       if (!normalizedId) {
         missingGlobalId += 1;
         continue;
       }
-      if (existingIds.has(normalizedId)) {
+
+      const suggestionType = String(
+        attributes[suggestionTypeField] || "New"
+      )
+        .trim()
+        .toLowerCase();
+
+      const isEdit = suggestionType === "edit";
+
+      // Build attributes shared by New and Edit workflows.
+      const destinationAttributes = {};
+
+      for (
+        const [sourceName, sourceValue]
+        of Object.entries(attributes)
+      ) {
+        const destinationName =
+          writableTargetFields.get(
+            sourceName.toLowerCase()
+          );
+
+        if (destinationName) {
+          destinationAttributes[destinationName] =
+            sourceValue;
+        }
+      }
+
+      if (isEdit) {
+        const railBusinessId = Number(
+          attributes[config.railBusinessIdField]
+        );
+
+        if (!Number.isFinite(railBusinessId)) {
+          throw new Error(
+            `Approved edit OBJECTID ` +
+            `${attributes[sourceLayer.objectIdField]} ` +
+            `does not contain a valid RailBusinessID.`
+          );
+        }
+
+        const targetOid =
+          targetByRailBusinessId.get(
+            railBusinessId
+          );
+
+        if (targetOid == null) {
+          throw new Error(
+            `Could not find RailBusinessID ` +
+            `${railBusinessId} in Rail Businesses.`
+          );
+        }
+
+        // Required by updateFeatures.
+        destinationAttributes[targetOidField] =
+          targetOid;
+
+        // Explicitly preserve the same business ID.
+        destinationAttributes[railBusinessIdField] =
+          railBusinessId;
+
+        records.push({
+          mode: "edit",
+          sourceOid:
+            attributes[sourceLayer.objectIdField],
+          sourceGlobalId: normalizedId,
+          railBusinessId,
+          targetFeature: new GraphicClass({
+            geometry: sourceFeature.geometry,
+            attributes: destinationAttributes
+          })
+        });
+
+        continue;
+      }
+
+      // NEW suggestion duplicate protection.
+      if (existingSourceIds.has(normalizedId)) {
         duplicates += 1;
         continue;
       }
 
-      const destinationAttributes = {};
-      for (const [sourceName, sourceValue] of Object.entries(attributes)) {
-        const destinationName = writableTargetFields.get(sourceName.toLowerCase());
-        if (destinationName) destinationAttributes[destinationName] = sourceValue;
-      }
-      destinationAttributes[trackingField] = String(sourceGlobalId);
+      // Only NEW businesses receive SourceGlobalID.
+      destinationAttributes[trackingField] =
+        String(sourceGlobalId);
 
       records.push({
-        sourceOid: attributes[sourceLayer.objectIdField],
+        mode: "new",
+        sourceOid:
+          attributes[sourceLayer.objectIdField],
         sourceGlobalId: normalizedId,
         targetFeature: new GraphicClass({
           geometry: sourceFeature.geometry,
           attributes: destinationAttributes
         })
       });
-      existingIds.add(normalizedId);
+
+      existingSourceIds.add(normalizedId);
     }
 
-    preview = { approvedFeatures, records, duplicates, missingGlobalId, reviewField };
-    elements["approved-count"].textContent = approvedFeatures.length;
-    elements["duplicate-count"].textContent = duplicates;
-    elements["ready-count"].textContent = records.length;
-    elements["missing-count"].textContent = missingGlobalId;
+    preview = {
+      approvedFeatures,
+      records,
+      duplicates,
+      missingGlobalId,
+      reviewField
+    };
+
+    elements["approved-count"].textContent =
+      approvedFeatures.length;
+
+    elements["duplicate-count"].textContent =
+      duplicates;
+
+    elements["ready-count"].textContent =
+      records.length;
+
+    elements["missing-count"].textContent =
+      missingGlobalId;
+
   } catch (error) {
     preview = null;
-    showMessage("error", error.message || String(error));
+    showMessage(
+      "error",
+      error.message || String(error)
+    );
+
   } finally {
     setBusy(false);
   }
@@ -280,12 +450,14 @@ function errorSummary(error) {
 
 async function processApproved() {
   if (busy || !preview?.records.length) return;
-  setBusy(true, "Appending…");
+
+  setBusy(true, "Processing…");
   showMessage(null, null);
 
   const totals = {
     approved: preview.approvedFeatures.length,
     added: 0,
+    targetUpdated: 0,
     updated: 0,
     duplicates: preview.duplicates,
     missing: preview.missingGlobalId,
@@ -294,78 +466,246 @@ async function processApproved() {
   };
 
   try {
-    const railBusinessIdField = findField(
-      targetLayer,
-      config.railBusinessIdField
-    ).name;
-  
-    const maxRailBusinessId = await getMaxRailBusinessId();
-  
-    let nextRailBusinessId = maxRailBusinessId + 1;
-  
-    for (const record of preview.records) {
-      record.targetFeature.attributes[railBusinessIdField] =
-        nextRailBusinessId;
-  
-      nextRailBusinessId += 1;
+    const railBusinessIdField =
+      findField(
+        targetLayer,
+        config.railBusinessIdField
+      ).name;
+
+    const newRecords =
+      preview.records.filter(
+        (record) => record.mode === "new"
+      );
+
+    const editRecords =
+      preview.records.filter(
+        (record) => record.mode === "edit"
+      );
+
+    // -----------------------------------
+    // Assign IDs ONLY to new businesses
+    // -----------------------------------
+
+    if (newRecords.length) {
+      const maxRailBusinessId =
+        await getMaxRailBusinessId();
+
+      let nextRailBusinessId =
+        maxRailBusinessId + 1;
+
+      for (const record of newRecords) {
+        record.targetFeature.attributes[
+          railBusinessIdField
+        ] = nextRailBusinessId;
+
+        nextRailBusinessId += 1;
+      }
     }
-  
-    for (const recordBatch of chunks(preview.records, config.batchSize)) {
+
+    const successfulRecords = [];
+
+    // -----------------------------------
+    // ADD NEW BUSINESSES
+    // -----------------------------------
+
+    for (
+      const recordBatch
+      of chunks(newRecords, config.batchSize)
+    ) {
       let addResults;
+
       try {
-        const response = await targetLayer.applyEdits(
-          { addFeatures: recordBatch.map((record) => record.targetFeature) },
-          { rollbackOnFailureEnabled: false }
-        );
-        addResults = response.addFeatureResults || [];
+        const response =
+          await targetLayer.applyEdits(
+            {
+              addFeatures: recordBatch.map(
+                (record) =>
+                  record.targetFeature
+              )
+            },
+            {
+              rollbackOnFailureEnabled: false
+            }
+          );
+
+        addResults =
+          response.addFeatureResults || [];
+
       } catch (error) {
         for (const record of recordBatch) {
-          totals.addFailures.push({ sourceOid: record.sourceOid, error: errorSummary(error) });
+          totals.addFailures.push({
+            sourceOid: record.sourceOid,
+            error: errorSummary(error)
+          });
         }
+
         continue;
       }
 
-      const successfulRecords = [];
-      recordBatch.forEach((record, index) => {
-        const result = addResults[index];
-        if (result && !result.error) {
-          totals.added += 1;
-          successfulRecords.push(record);
-        } else {
-          totals.addFailures.push({ sourceOid: record.sourceOid, error: errorSummary(result?.error) });
-        }
-      });
+      recordBatch.forEach(
+        (record, index) => {
+          const result =
+            addResults[index];
 
-      if (!successfulRecords.length) continue;
+          if (result && !result.error) {
+            totals.added += 1;
+            successfulRecords.push(record);
 
-      const updates = successfulRecords.map((record) => new GraphicClass({
-        attributes: {
-          [sourceLayer.objectIdField]: record.sourceOid,
-          [preview.reviewField]: config.processedValue
+          } else {
+            totals.addFailures.push({
+              sourceOid: record.sourceOid,
+              error: errorSummary(
+                result?.error
+              )
+            });
+          }
         }
-      }));
+      );
+    }
+
+    // -----------------------------------
+    // UPDATE EXISTING BUSINESSES
+    // -----------------------------------
+
+    for (
+      const recordBatch
+      of chunks(editRecords, config.batchSize)
+    ) {
+      let editResults;
 
       try {
-        const response = await sourceLayer.applyEdits(
-          { updateFeatures: updates },
-          { rollbackOnFailureEnabled: false }
-        );
-        const updateResults = response.updateFeatureResults || [];
-        successfulRecords.forEach((record, index) => {
-          const result = updateResults[index];
-          if (result && !result.error) totals.updated += 1;
-          else totals.updateFailures.push({ sourceOid: record.sourceOid, error: errorSummary(result?.error) });
-        });
+        const response =
+          await targetLayer.applyEdits(
+            {
+              updateFeatures:
+                recordBatch.map(
+                  (record) =>
+                    record.targetFeature
+                )
+            },
+            {
+              rollbackOnFailureEnabled: false
+            }
+          );
+
+        editResults =
+          response.updateFeatureResults || [];
+
       } catch (error) {
-        for (const record of successfulRecords) {
-          totals.updateFailures.push({ sourceOid: record.sourceOid, error: errorSummary(error) });
+        for (const record of recordBatch) {
+          totals.updateFailures.push({
+            sourceOid: record.sourceOid,
+            error: errorSummary(error)
+          });
+        }
+
+        continue;
+      }
+
+      recordBatch.forEach(
+        (record, index) => {
+          const result =
+            editResults[index];
+
+          if (result && !result.error) {
+            totals.targetUpdated += 1;
+            successfulRecords.push(record);
+
+          } else {
+            totals.updateFailures.push({
+              sourceOid: record.sourceOid,
+              error: errorSummary(
+                result?.error
+              )
+            });
+          }
+        }
+      );
+    }
+
+    // -----------------------------------
+    // MARK SUCCESSFUL SUGGESTIONS
+    // AS PROCESSED
+    // -----------------------------------
+
+    if (successfulRecords.length) {
+      const sourceUpdates =
+        successfulRecords.map(
+          (record) =>
+            new GraphicClass({
+              attributes: {
+                [sourceLayer.objectIdField]:
+                  record.sourceOid,
+
+                [preview.reviewField]:
+                  config.processedValue
+              }
+            })
+        );
+
+      try {
+        const response =
+          await sourceLayer.applyEdits(
+            {
+              updateFeatures:
+                sourceUpdates
+            },
+            {
+              rollbackOnFailureEnabled: false
+            }
+          );
+
+        const results =
+          response.updateFeatureResults || [];
+
+        successfulRecords.forEach(
+          (record, index) => {
+            const result = results[index];
+
+            if (result && !result.error) {
+              totals.updated += 1;
+
+            } else {
+              totals.updateFailures.push({
+                sourceOid:
+                  record.sourceOid,
+                error:
+                  errorSummary(
+                    result?.error
+                  )
+              });
+            }
+          }
+        );
+
+      } catch (error) {
+        for (
+          const record
+          of successfulRecords
+        ) {
+          totals.updateFailures.push({
+            sourceOid: record.sourceOid,
+            error: errorSummary(error)
+          });
         }
       }
     }
 
     renderResults(totals);
-    showMessage("success", `Completed: ${totals.added} appended and ${totals.updated} marked processed.`);
+
+    showMessage(
+      "success",
+      `Completed: ` +
+      `${totals.added} new business` +
+      `${totals.added === 1 ? "" : "es"} added, ` +
+      `${totals.targetUpdated} existing business` +
+      `${totals.targetUpdated === 1 ? "" : "es"} updated, ` +
+      `and ${totals.updated} suggestion` +
+      `${totals.updated === 1 ? "" : "s"} marked processed.`
+    );
+
     await buildPreview();
+
   } finally {
     setBusy(false);
   }
@@ -415,7 +755,7 @@ async function start() {
   });
   elements["refresh-button"].addEventListener("click", buildPreview);
   elements["process-button"].addEventListener("click", () => {
-    elements["confirm-copy"].textContent = `${preview.records.length} new approved record${preview.records.length === 1 ? "" : "s"} will be appended. This action changes production data.`;
+    elements["confirm-copy"].textContent = `${preview.records.length} approved suggestion` + `${preview.records.length === 1 ? "" : "s"} will be processed. ` + `New businesses will be added and approved edits will update existing businesses. ` + `This action changes production data.`;
     elements["confirm-dialog"].showModal();
   });
   elements["confirm-dialog"].addEventListener("close", () => {
